@@ -1,0 +1,48 @@
+name: Build Aseprite
+
+on:
+  workflow_dispatch:             # 手动触发
+  schedule:
+    - cron: '0 2 * * *'          # 每天 02:00 自动检查更新
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: aseprite/aseprite
+          ref: main               # 拉官方最新主干
+          submodules: recursive
+
+      - name: Generate build-info
+        id: info
+        run: |
+          echo "short_sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          echo "build_date=$(date +%Y%m%d)"            >> $GITHUB_OUTPUT
+        shell: bash
+
+      - name: Build
+        run: |
+          choco install cmake ninja
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo ^
+                -DLAF_BACKEND=skia -DSKIA_DIR=$SKIA_DIR -DSKIA_LIBRARY_DIR=$SKIA_LIB_DIR
+          ninja -C build aseprite
+        env:
+          SKIA_DIR: ${{ github.workspace }}/skia
+          SKIA_LIB_DIR: ${{ github.workspace }}/skia/out/Release-x64
+
+      - name: Pack
+        run: |
+          7z a Aseprite-v1.3.15-${{ steps.info.outputs.short_sha }}-Windows.zip ^
+             ./build/bin/aseprite.exe ./build/bin/data
+
+      - name: Release
+        uses: ncipollo/release-action@v1
+        with:
+          tag: v1.3.15-${{ steps.info.outputs.short_sha }}
+          name: Aseprite v1.3.15 (${{ steps.info.outputs.short_sha }})
+          artifacts: Aseprite-v1.3.15-${{ steps.info.outputs.short_sha }}-Windows.zip
+          draft: true
+          prerelease: false
+          token: ${{ secrets.GITHUB_TOKEN }}
